@@ -27,6 +27,8 @@
 
 package com.zerotier.sdk;
 
+import java.nio.ByteBuffer;
+
 public interface VirtualNetworkFrameListener {
 
     /**
@@ -45,5 +47,5 @@ public interface VirtualNetworkFrameListener {
                 long destMac,
                 long etherType,
                 long vlanId,
-                byte[] frameData);
+                ByteBuffer frameData);
 }

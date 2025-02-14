@@ -262,14 +262,14 @@ namespace {
             return;
         }
 
-        const unsigned char *bytes = static_cast<const unsigned char*>(frameData);
-        jbyteArray dataArray = newByteArray(env, bytes, frameLength);
-        if(env->ExceptionCheck() || dataArray == NULL)
+        jobject frameBuf = env->NewDirectByteBuffer((void*)frameData, frameLength);
+        if(env->ExceptionCheck() || frameBuf == nullptr)
         {
+            LOGE("VirtualNetworkFrameFunctionCallback NewDirectByteBuffer error");
             return;
         }
 
-        env->CallVoidMethod(ref->frameListener, VirtualNetworkFrameListener_onVirtualNetworkFrame_method, (jlong)nwid, (jlong)sourceMac, (jlong)destMac, (jlong)etherType, (jlong)vlanid, (jbyteArray)dataArray);
+        env->CallVoidMethod(ref->frameListener, VirtualNetworkFrameListener_onVirtualNetworkFrame_method, (jlong)nwid, (jlong)sourceMac, (jlong)destMac, (jlong)etherType, (jlong)vlanid, frameBuf);
         if (env->ExceptionCheck()) {
             LOGE("Exception calling onVirtualNetworkFrame");
             return;
@@ -619,14 +619,13 @@ namespace {
         if (env->ExceptionCheck()) {
             return -102;
         }
-        const unsigned char *bytes = static_cast<const unsigned char *>(buffer);
-        jbyteArray bufferObj = newByteArray(env, bytes, bufferSize);
-        if (env->ExceptionCheck() || bufferObj == NULL)
-        {
+
+        jobject bufferObj = env->NewDirectByteBuffer((void*) buffer, bufferSize);
+        if (env->ExceptionCheck() || bufferObj == nullptr) {
             return -103;
         }
-        
-        int retval = env->CallIntMethod(ref->packetSender, PacketSender_onSendPacketRequested_method, (jlong)localSocket, (jobject)remoteAddressObj, (jbyteArray)bufferObj, (jint)0);
+
+        int retval = env->CallIntMethod(ref->packetSender, PacketSender_onSendPacketRequested_method, (jlong)localSocket, (jobject)remoteAddressObj, bufferObj, (jint)0);
         if (env->ExceptionCheck()) {
             LOGE("Exception calling onSendPacketRequested");
             return -104;
@@ -975,7 +974,7 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processVirtualNetworkFrame(
     jlong in_destMac,
     jint in_etherType,
     jint in_vlanId,
-    jbyteArray in_frameData,
+    jobject in_frameData,
     jlongArray out_nextBackgroundTaskDeadline)
 {
     int64_t nodeId = (int64_t) id;
@@ -996,14 +995,22 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processVirtualNetworkFrame(
     unsigned int etherType = (unsigned int)in_etherType;
     unsigned int vlanId = (unsigned int)in_vlanId;
 
-    unsigned int frameLength = env->GetArrayLength(in_frameData);
-    void *frameData = env->GetPrimitiveArrayCritical(in_frameData, NULL);
+    jbyte* frameData = (jbyte*)env->GetDirectBufferAddress(in_frameData);
+    if (frameData == nullptr) {
+        LOGE("Java_com_zerotier_sdk_Node_processVirtualNetworkFrame fail to GetDirectBufferAddress in_frameData");
+        return nullptr;
+    }
+    jint frameLength = env->CallIntMethod(in_frameData, ByteBuffer_remaining_method);
+    jint currPos = env->CallIntMethod(in_frameData, ByteBuffer_position_method);
+
+    jbyte* targetFrameData = frameData + currPos;
+
     //
     // need local copy of frameData because arbitrary code may run in ZT_Node_processVirtualNetworkFrame and no other JNI work may happen between GetPrimitiveArrayCritical / ReleasePrimitiveArrayCritical
     //
-    void *localData = malloc(frameLength);
-    memcpy(localData, frameData, frameLength);
-    env->ReleasePrimitiveArrayCritical(in_frameData, frameData, 0);
+    //void *localData = malloc(frameLength);
+    //memcpy(localData, frameData, frameLength);
+    //env->ReleasePrimitiveArrayCritical(in_frameData, frameData, 0);
 
     int64_t nextBackgroundTaskDeadline = 0;
 
@@ -1016,19 +1023,19 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processVirtualNetworkFrame(
         destMac,
         etherType,
         vlanId,
-        (const void*)localData,
+        (const void*)targetFrameData,
         frameLength,
         &nextBackgroundTaskDeadline);
     if (env->ExceptionCheck()) {
         LOGE("Exception calling ZT_Node_processVirtualNetworkFrame");
-        free(localData);
+        //free(localData);
         return ResultCode_RESULT_FATAL_ERROR_INTERNAL_enum;
     }
     if (rc != ZT_RESULT_OK) {
         LOGE("ZT_Node_processVirtualNetworkFrame returned: %d", rc);
     }
 
-    free(localData);
+    //free(localData);
 
     jlong *outDeadline = (jlong*)env->GetPrimitiveArrayCritical(out_nextBackgroundTaskDeadline, NULL);
     outDeadline[0] = (jlong)nextBackgroundTaskDeadline;
@@ -1048,7 +1055,7 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processWirePacket(
     jlong in_now,
     jlong in_localSocket,
     jobject in_remoteAddress,
-    jbyteArray in_packetData,
+    jobject in_packetData,
     jlongArray out_nextBackgroundTaskDeadline)
 {
     int64_t nodeId = (int64_t) id;
@@ -1068,19 +1075,26 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processWirePacket(
         return NULL;
     }
 
-    unsigned int packetLength = (unsigned int)env->GetArrayLength(in_packetData);
+    jbyte* packetData = (jbyte*)env->GetDirectBufferAddress(in_packetData);
+    if (packetData == nullptr) {
+        LOGE("Java_com_zerotier_sdk_Node_processWirePacket fail to GetDirectBufferAddress in_packetData");
+        return nullptr;
+    }
+    jint packetLength = env->CallIntMethod(in_packetData, ByteBuffer_remaining_method);
+    jint currPos = env->CallIntMethod(in_packetData, ByteBuffer_position_method);
+
     if(packetLength == 0)
     {
         LOGE("Empty packet?!?");
         return ResultCode_RESULT_FATAL_ERROR_INTERNAL_enum;
     }
-    void *packetData = env->GetPrimitiveArrayCritical(in_packetData, NULL);
+    jbyte* targetPacketData = packetData + currPos;
+
     //
     // need local copy of packetData because arbitrary code may run in ZT_Node_processWirePacket and no other JNI work may happen between GetPrimitiveArrayCritical / ReleasePrimitiveArrayCritical
     //
-    void *localData = malloc(packetLength);
-    memcpy(localData, packetData, packetLength);
-    env->ReleasePrimitiveArrayCritical(in_packetData, packetData, 0);
+    //void *localData = malloc(packetLength);
+    //memcpy(localData, packetData, packetLength);
 
     int64_t nextBackgroundTaskDeadline = 0;
 
@@ -1090,12 +1104,12 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processWirePacket(
         now,
         in_localSocket,
         &remoteAddress,
-        localData,
+        targetPacketData,
         packetLength,
         &nextBackgroundTaskDeadline);
     if (env->ExceptionCheck()) {
         LOGE("Exception calling ZT_Node_processWirePacket");
-        free(localData);
+        //free(localData);
         return ResultCode_RESULT_FATAL_ERROR_INTERNAL_enum;
     }
     if(rc != ZT_RESULT_OK)
@@ -1103,7 +1117,7 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processWirePacket(
         LOGE("ZT_Node_processWirePacket returned: %d", rc);
     }
 
-    free(localData);
+    //free(localData);
 
     jlong *outDeadline = (jlong*)env->GetPrimitiveArrayCritical(out_nextBackgroundTaskDeadline, NULL);
     outDeadline[0] = (jlong)nextBackgroundTaskDeadline;

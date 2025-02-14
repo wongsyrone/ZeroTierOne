@@ -43,6 +43,7 @@
 // Classes
 //
 
+jclass ByteBuffer_class;
 jclass ArrayList_class;
 jclass DataStoreGetListener_class;
 jclass DataStorePutListener_class;
@@ -74,6 +75,8 @@ jclass VirtualNetworkType_class;
 // Instance methods
 //
 
+jmethodID ByteBuffer_position_method;
+jmethodID ByteBuffer_remaining_method;
 jmethodID ArrayList_add_method;
 jmethodID ArrayList_ctor;
 jmethodID DataStoreGetListener_onDataStoreGet_method;
@@ -126,6 +129,7 @@ void setupJNICache(JavaVM *vm) {
     // Classes
     //
 
+    SETCLASS(ByteBuffer_class, "java/nio/ByteBuffer");
     SETCLASS(ArrayList_class, "java/util/ArrayList");
     SETCLASS(DataStoreGetListener_class, "com/zerotier/sdk/DataStoreGetListener");
     SETCLASS(DataStorePutListener_class, "com/zerotier/sdk/DataStorePutListener");
@@ -157,6 +161,8 @@ void setupJNICache(JavaVM *vm) {
     // Instance methods
     //
 
+    EXCEPTIONANDNULLCHECK(ByteBuffer_position_method = env->GetMethodID(ByteBuffer_class, "position", "()I"));
+    EXCEPTIONANDNULLCHECK(ByteBuffer_remaining_method = env->GetMethodID(ByteBuffer_class, "remaining", "()I"));
     EXCEPTIONANDNULLCHECK(ArrayList_add_method = env->GetMethodID(ArrayList_class, "add", "(Ljava/lang/Object;)Z"));
     EXCEPTIONANDNULLCHECK(ArrayList_ctor = env->GetMethodID(ArrayList_class, "<init>", "(I)V"));
     EXCEPTIONANDNULLCHECK(DataStoreGetListener_onDataStoreGet_method = env->GetMethodID(DataStoreGetListener_class, "onDataStoreGet", "(Ljava/lang/String;[B)J"));
@@ -169,7 +175,7 @@ void setupJNICache(JavaVM *vm) {
     EXCEPTIONANDNULLCHECK(InetSocketAddress_getAddress_method = env->GetMethodID(InetSocketAddress_class, "getAddress", "()Ljava/net/InetAddress;"));
     EXCEPTIONANDNULLCHECK(InetSocketAddress_getPort_method = env->GetMethodID(InetSocketAddress_class, "getPort", "()I"));
     EXCEPTIONANDNULLCHECK(NodeStatus_ctor = env->GetMethodID(NodeStatus_class, "<init>", "(JLjava/lang/String;Ljava/lang/String;Z)V"));
-    EXCEPTIONANDNULLCHECK(PacketSender_onSendPacketRequested_method = env->GetMethodID(PacketSender_class, "onSendPacketRequested", "(JLjava/net/InetSocketAddress;[BI)I"));
+    EXCEPTIONANDNULLCHECK(PacketSender_onSendPacketRequested_method = env->GetMethodID(PacketSender_class, "onSendPacketRequested", "(JLjava/net/InetSocketAddress;Ljava/nio/ByteBuffer;I)I"));
     EXCEPTIONANDNULLCHECK(PathChecker_onPathCheck_method = env->GetMethodID(PathChecker_class, "onPathCheck", "(JJLjava/net/InetSocketAddress;)Z"));
     EXCEPTIONANDNULLCHECK(PathChecker_onPathLookup_method = env->GetMethodID(PathChecker_class, "onPathLookup", "(JI)Ljava/net/InetSocketAddress;"));
     EXCEPTIONANDNULLCHECK(PeerPhysicalPath_ctor = env->GetMethodID(PeerPhysicalPath_class, "<init>", "(Ljava/net/InetSocketAddress;JJZ)V"));
@@ -178,7 +184,7 @@ void setupJNICache(JavaVM *vm) {
     EXCEPTIONANDNULLCHECK(VirtualNetworkConfigListener_onNetworkConfigurationUpdated_method = env->GetMethodID(VirtualNetworkConfigListener_class, "onNetworkConfigurationUpdated", "(JLcom/zerotier/sdk/VirtualNetworkConfigOperation;Lcom/zerotier/sdk/VirtualNetworkConfig;)I"));
     EXCEPTIONANDNULLCHECK(VirtualNetworkConfig_ctor = env->GetMethodID(VirtualNetworkConfig_class, "<init>", "(JJLjava/lang/String;Lcom/zerotier/sdk/VirtualNetworkStatus;Lcom/zerotier/sdk/VirtualNetworkType;IZZZIJ[Ljava/net/InetSocketAddress;[Lcom/zerotier/sdk/VirtualNetworkRoute;Lcom/zerotier/sdk/VirtualNetworkDNS;)V"));
     EXCEPTIONANDNULLCHECK(VirtualNetworkDNS_ctor = env->GetMethodID(VirtualNetworkDNS_class, "<init>", "(Ljava/lang/String;Ljava/util/ArrayList;)V"));
-    EXCEPTIONANDNULLCHECK(VirtualNetworkFrameListener_onVirtualNetworkFrame_method = env->GetMethodID(VirtualNetworkFrameListener_class, "onVirtualNetworkFrame", "(JJJJJ[B)V"));
+    EXCEPTIONANDNULLCHECK(VirtualNetworkFrameListener_onVirtualNetworkFrame_method = env->GetMethodID(VirtualNetworkFrameListener_class, "onVirtualNetworkFrame", "(JJJJJLjava/nio/ByteBuffer;)V"));
     EXCEPTIONANDNULLCHECK(VirtualNetworkRoute_ctor = env->GetMethodID(VirtualNetworkRoute_class, "<init>", "(Ljava/net/InetSocketAddress;Ljava/net/InetSocketAddress;II)V"));
 
     //
@@ -206,6 +212,7 @@ void teardownJNICache(JavaVM *vm) {
     JNIEnv *env;
     GETENV(env, vm);
 
+    env->DeleteGlobalRef(ByteBuffer_class);
     env->DeleteGlobalRef(ArrayList_class);
     env->DeleteGlobalRef(DataStoreGetListener_class);
     env->DeleteGlobalRef(DataStorePutListener_class);
