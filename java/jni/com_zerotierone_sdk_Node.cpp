@@ -136,7 +136,17 @@ namespace {
             }
 
             jint attachCurrentThreadRet;
+            // The JNI headers disagree about this parameter across platforms:
+            // the Android NDK declares AttachCurrentThread(JNIEnv**, void*) while
+            // a host JDK declares AttachCurrentThread(void**, void*). Passing the
+            // wrong one is a hard compile error, not a warning, so pick per
+            // toolchain. Casting to void** unconditionally compiles on a host
+            // JDK but is rejected by the NDK.
+#if defined(__ANDROID__)
+            if ((attachCurrentThreadRet = jvm->AttachCurrentThread(env_p, NULL)) != JNI_OK) {
+#else
             if ((attachCurrentThreadRet = jvm->AttachCurrentThread(reinterpret_cast<void**>(env_p), NULL)) != JNI_OK) {
+#endif
                 LOGE("Error calling AttachCurrentThread: %d", attachCurrentThreadRet);
                 assert(false && "Error calling AttachCurrentThread");
             }
