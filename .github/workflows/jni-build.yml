@@ -170,19 +170,27 @@ jobs:
           test -f "$lib" || { echo "::error::$lib was not produced"; exit 1; }
           file "$lib"
 
-          # The symbol names must match the Ubuntu build: the downstream app
-          # loads this with System.loadLibrary and JNI resolves by name only.
+          # The JNI entry points must match the Ubuntu build: the downstream
+          # app loads this with System.loadLibrary and the JVM resolves entry
+          # points by name, so a symbol present in one toolchain but not the
+          # other is a runtime failure waiting to happen.
+          #
+          # Only Java_* is compared. The rest of the dynamic symbol table
+          # holds linker-provided symbols such as _init, _fini, _edata and
+          # _end, which differ between the x86-64 host and the arm64 Android
+          # ABI and would make a whole-table diff fail for no useful reason.
           linux_lib=java/build/libZeroTierOneJNI.so
           if [ -f "$linux_lib" ]; then
-            diff \
-              <(nm -D --defined-only "$linux_lib" | awk '{print $NF}' | sort -u) \
-              <(nm -D --defined-only "$lib"       | awk '{print $NF}' | sort -u) \
-              > /tmp/symdiff.txt || {
-                echo "::error::Android and Ubuntu JNI exports differ:"
-                head -40 /tmp/symdiff.txt
-                exit 1
-              }
-            echo "Android exports match the Ubuntu build."
+            jni_syms() {
+              nm -D --defined-only "$1" | awk '{print $NF}' | grep '^Java_' | sort -u
+            }
+            android_count=$(jni_syms "$lib" | wc -l)
+            diff <(jni_syms "$linux_lib") <(jni_syms "$lib") > /tmp/symdiff.txt || {
+              echo "::error::Android and Ubuntu JNI exports differ:"
+              head -40 /tmp/symdiff.txt
+              exit 1
+            }
+            echo "All $android_count JNI exports match the Ubuntu build."
           else
             echo "::warning::$linux_lib not found, skipping cross-check"
           fi
