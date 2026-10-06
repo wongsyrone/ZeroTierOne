@@ -22,6 +22,7 @@
 
 #include <string>
 #include <cassert>
+#include <cstring>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
