@@ -28,6 +28,7 @@
 package com.zerotier.sdk;
 
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 
 
 public interface PacketSender {
@@ -48,6 +49,6 @@ public interface PacketSender {
     int onSendPacketRequested(
             long localSocket,
             InetSocketAddress remoteAddr,
-            byte[] packetData,
+            ByteBuffer packetData,
             int ttl);
 }

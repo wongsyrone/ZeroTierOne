@@ -37,7 +37,7 @@ JNIEXPORT void JNICALL Java_com_zerotier_sdk_Node_node_1delete
  * Signature: (JJJJJII[B[J)Lcom/zerotier/sdk/ResultCode;
  */
 JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processVirtualNetworkFrame
-  (JNIEnv *, jobject, jlong, jlong, jlong, jlong, jlong, jint, jint, jbyteArray, jlongArray);
+  (JNIEnv *, jobject, jlong, jlong, jlong, jlong, jlong, jint, jint, jobject , jlongArray);
 
 /*
  * Class:     com_zerotier_sdk_Node
@@ -45,7 +45,7 @@ JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processVirtualNetworkFrame
  * Signature: (JJJLjava/net/InetSockAddress;[B[J)Lcom/zerotier/sdk/ResultCode;
  */
 JNIEXPORT jobject JNICALL Java_com_zerotier_sdk_Node_processWirePacket
-  (JNIEnv *, jobject, jlong, jlong, jlong, jobject, jbyteArray, jlongArray);
+  (JNIEnv *, jobject, jlong, jlong, jlong, jobject, jobject , jlongArray);
 
 /*
  * Class:     com_zerotier_sdk_Node

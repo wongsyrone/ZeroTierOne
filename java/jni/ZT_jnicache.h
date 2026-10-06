@@ -12,6 +12,7 @@
 // Classes
 //
 
+extern jclass ByteBuffer_class;
 extern jclass ArrayList_class;
 extern jclass DataStoreGetListener_class;
 extern jclass DataStorePutListener_class;
@@ -43,6 +44,8 @@ extern jclass VirtualNetworkType_class;
 // Instance methods
 //
 
+extern jmethodID ByteBuffer_position_method;
+extern jmethodID ByteBuffer_remaining_method;
 extern jmethodID ArrayList_add_method;
 extern jmethodID ArrayList_ctor;
 extern jmethodID DataStoreGetListener_onDataStoreGet_method;
