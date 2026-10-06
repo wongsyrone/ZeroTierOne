@@ -1,0 +1,195 @@
+name: jni-build
+
+# The jni/* branches exist to serve a downstream consumer repository, so this
+# workflow only guards the JNI contract: does libZeroTierOneJNI.so still build,
+# and do the exported symbols still match the Java-side declarations.
+on:
+  push:
+    branches:
+      - 'jni/**'
+  workflow_dispatch:
+
+jobs:
+  build-jni-ubuntu:
+    name: JNI build (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: gitconfig
+        run: git config --global core.autocrlf input
+
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure CMake
+        working-directory: java
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJAVA_HOME="$JAVA_HOME"
+
+      - name: Build ZeroTierOneJNI
+        working-directory: java
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Verify native library
+        run: |
+          set -euo pipefail
+          lib=java/build/libZeroTierOneJNI.so
+          test -f "$lib" || { echo "::error::$lib was not produced"; exit 1; }
+          file "$lib"
+
+          # Every JNI entry point below is declared `native` in Node.java.
+          # A missing symbol means the native/Java signature pair drifted apart,
+          # which would break the downstream consumer at load time.
+          expected="
+          Java_com_zerotier_sdk_Node_node_1init
+          Java_com_zerotier_sdk_Node_node_1isInited
+          Java_com_zerotier_sdk_Node_node_1delete
+          Java_com_zerotier_sdk_Node_processVirtualNetworkFrame
+          Java_com_zerotier_sdk_Node_processWirePacket
+          Java_com_zerotier_sdk_Node_processBackgroundTasks
+          Java_com_zerotier_sdk_Node_join
+          Java_com_zerotier_sdk_Node_leave
+          Java_com_zerotier_sdk_Node_multicastSubscribe
+          Java_com_zerotier_sdk_Node_multicastUnsubscribe
+          Java_com_zerotier_sdk_Node_orbit
+          Java_com_zerotier_sdk_Node_deorbit
+          Java_com_zerotier_sdk_Node_address
+          Java_com_zerotier_sdk_Node_status
+          Java_com_zerotier_sdk_Node_networkConfig
+          Java_com_zerotier_sdk_Node_networkConfigs
+          Java_com_zerotier_sdk_Node_version
+          Java_com_zerotier_sdk_Node_peers
+          "
+          syms=$(nm -D --defined-only "$lib" | awk '{print $NF}' | sort -u)
+          missing=0
+          for s in $expected; do
+            if ! grep -qx "$s" <<<"$syms"; then
+              echo "::error::missing JNI symbol $s"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          echo "All expected JNI symbols present."
+
+      # The Java layer targets Android and imports android.util.Log, so it
+      # cannot be compiled here without an android.jar. Instead, cross-check
+      # that every `native` declaration in Node.java has a matching exported
+      # JNI symbol: an underscore in a method name is mangled to _1.
+      - name: Verify native/Java declarations match
+        run: |
+          set -euo pipefail
+          syms=$(nm -D --defined-only java/build/libZeroTierOneJNI.so | awk '{print $NF}' | sort -u)
+          extract_scalars='s/.*native [A-Za-z0-9_]* \([a-zA-Z0-9_]*\)(.*/\1/p'
+          extract_arrays='s/.*native [A-Za-z0-9_]*\([A-Za-z0-9_]*\)\[[a-zA-Z0-9_]*\] \([a-zA-Z0-9_]*\)(.*/\2/p'
+          {
+            sed -n "$extract_scalars" java/src/com/zerotier/sdk/Node.java
+            sed -n "$extract_arrays" java/src/com/zerotier/sdk/Node.java
+          } | sort -u > /tmp/native_decls.txt
+
+          total=$(wc -l < /tmp/native_decls.txt)
+          [ "$total" -gt 0 ] || { echo "::error::failed to parse native declarations"; exit 1; }
+
+          missing=0
+          while read -r decl; do
+            [ -n "$decl" ] || continue
+            sym="Java_com_zerotier_sdk_Node_$(echo "$decl" | sed 's/_/_1/g')"
+            if ! grep -qx "$sym" <<<"$syms"; then
+              echo "::error::Node.java declares '$decl' natively but $sym is not exported"
+              missing=1
+            fi
+          done < /tmp/native_decls.txt
+          [ "$missing" -eq 0 ] || exit 1
+          echo "All $total native declarations in Node.java resolve to exported symbols."
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerotier-one-jni-linux-x64
+          path: java/build/libZeroTierOneJNI.so
+          retention-days: 7
+
+  # The only consumer of this branch is an Android app, and the NDK ships a
+  # different jni.h than a host JDK: JavaVM::AttachCurrentThread takes JNIEnv**
+  # there but void** on a desktop JDK. A build that is green on Ubuntu can
+  # therefore still fail for the consumer, which is exactly what happened with
+  # commit 97f01d17e. This job cross-compiles with the NDK toolchain so the
+  # Android build is checked here instead of downstream.
+  build-jni-android:
+    name: JNI build (Android NDK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 'latest'
+          log-accepted-android-sdk-licenses: 'false'
+          packages: 'platform-tools cmake;3.31.5 ndk;28.0.13004108'
+
+      - name: Configure CMake with the NDK toolchain
+        working-directory: java
+        run: |
+          cmake -S . -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJAVA_HOME="$JAVA_HOME"
+
+      - name: Build ZeroTierOneJNI for Android
+        working-directory: java
+        run: cmake --build build-android --parallel $(nproc)
+
+      # The Ubuntu job publishes libZeroTierOneJNI.so; pull it in so the two
+      # toolchains can be compared.
+      - name: Download the Ubuntu build for comparison
+        uses: actions/download-artifact@v4
+        with:
+          name: zerotier-one-jni-linux-x64
+          path: java/build
+
+      - name: Verify Android library
+        run: |
+          set -euo pipefail
+          lib=java/build-android/libZeroTierOneJNI.so
+          test -f "$lib" || { echo "::error::$lib was not produced"; exit 1; }
+          file "$lib"
+
+          # The symbol names must match the Ubuntu build: the downstream app
+          # loads this with System.loadLibrary and JNI resolves by name only.
+          linux_lib=java/build/libZeroTierOneJNI.so
+          if [ -f "$linux_lib" ]; then
+            diff \
+              <(nm -D --defined-only "$linux_lib" | awk '{print $NF}' | sort -u) \
+              <(nm -D --defined-only "$lib"       | awk '{print $NF}' | sort -u) \
+              > /tmp/symdiff.txt || {
+                echo "::error::Android and Ubuntu JNI exports differ:"
+                head -40 /tmp/symdiff.txt
+                exit 1
+              }
+            echo "Android exports match the Ubuntu build."
+          else
+            echo "::warning::$linux_lib not found, skipping cross-check"
+          fi
+
+      - name: Archive Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zerotier-one-jni-android-arm64
+          path: java/build-android/libZeroTierOneJNI.so
+          retention-days: 7
